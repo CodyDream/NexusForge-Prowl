@@ -1306,6 +1306,7 @@ public class ProjectPanel : DockPanel
                 builder.Item(Loc.Get("project.copy_guid"), () => paper_SetClipboard(item.Guid.ToString()), icon: EditorIcons.Fingerprint);
             if (!item.IsFolder && item.Guid != Guid.Empty && ModelEditingMode.CanCreateModelFrom(item.Guid))
                 builder.Item(Loc.Get("project.create_model_from"), () => ModelEditingMode.CreateModelFrom(item.Guid), icon: EditorIcons.Shapes);
+            Prowl.Editor.UnityPackages.UnityPackageContextMenu.AddToMenu(builder);
             if (!item.IsFolder)
                 builder.Item(Loc.Get("project.reimport"), () =>
                 {
