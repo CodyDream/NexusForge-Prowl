@@ -41,6 +41,8 @@
   </ItemGroup>
 
   <ItemGroup Condition="'$(ProwlLocalAnthology)' == 'true'">
+    <ProjectReference Include="..\..\Anthology\CDS.ProwlFork.United\CDS.ProwlFork.United\CDS.ProwlFork.United.csproj" />
+    <ProjectReference Include="$(AnthologyDir)Slang\Slang\Prowl.Slang.csproj" />
     <ProjectReference Include="$(AnthologyDir)Ember\Ember\Prowl.Ember.csproj" />
     <ProjectReference Include="$(AnthologyDir)Ember\Analyzers\Prowl.Ember.Analyzers.csproj" />
     <ProjectReference Include="$(AnthologyDir)Origami\Origami\Origami.csproj" />

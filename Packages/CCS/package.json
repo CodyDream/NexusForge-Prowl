@@ -1,0 +1,17 @@
+{
+  "name": "com.prowl.ccs",
+  "displayName": "Cinematic Camera System",
+  "version": "0.1.0",
+  "engine": ">=0.1.0",
+  "description": "Clean-room camera director for Prowl: a priority brain that blends virtual camera poses (position, rotation and FOV) with noise and impulse offsets.",
+  "keywords": [
+    "camera",
+    "cinematic",
+    "virtual-camera",
+    "blending",
+    "ccs"
+  ],
+  "license": "MIT",
+  "dependencies": {},
+  "assets": "Assets"
+}

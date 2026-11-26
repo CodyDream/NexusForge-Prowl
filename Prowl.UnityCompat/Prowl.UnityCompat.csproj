@@ -1,0 +1,38 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net11.0</TargetFramework>
+    <OutputType>Library</OutputType>
+    <RootNamespace>UnityEngine</RootNamespace>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <NoWarn>8600;8601;8618;8602;8603;8604;8625</NoWarn>
+  </PropertyGroup>
+
+  <PropertyGroup Condition=" '$(Configuration)' == 'Debug' ">
+    <OutputPath>../Build/UnityCompat/Debug/</OutputPath>
+  </PropertyGroup>
+
+  <PropertyGroup Condition=" '$(Configuration)' == 'Release' ">
+    <OutputPath>../Build/UnityCompat/Release/</OutputPath>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Prowl.Runtime\Prowl.Runtime.csproj" />
+    <!-- Same EngineObject null-safety analyzer the runtime uses; these forwarders touch EngineObjects. -->
+    <ProjectReference Include="..\Prowl.Analyzers\Prowl.Analyzers.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
+  </ItemGroup>
+
+  <!-- Local Anthology sources, mirroring Prowl.Editor.csproj / Prowl.Runtime.csproj. -->
+  <ItemGroup Condition="'$(ProwlLocalAnthology)' == 'true'">
+    <ProjectReference Include="$(AnthologyDir)Echo\Echo\Echo.csproj" />
+    <ProjectReference Include="$(AnthologyDir)Vector\Vector\Vector.csproj" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(ProwlLocalAnthology)' != 'true'">
+    <PackageReference Include="Prowl.Echo" Version="$(ProwlPackageVersion)" />
+    <PackageReference Include="Prowl.Vector" Version="$(ProwlPackageVersion)" />
+  </ItemGroup>
+
+</Project>

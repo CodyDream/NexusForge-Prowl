@@ -127,6 +127,30 @@ public class PolyHavenPanel : DockPanel
                     Origami.Button(paper, "ph_layout_btn", _grid ? Loc.Get("polyhaven.list") : Loc.Get("polyhaven.grid"),
                         () => _grid = !_grid).Small().Show());
 
+                // The name sent in every User-Agent, kept here next to the controls it identifies. It is
+                // applied to requests as they are made, so a change takes effect without reloading the list.
+                EditorGUI.SectionHeader(paper, "ph_settings_head", Loc.Get("polyhaven.settings"));
+                PolyHavenUserAgentSettings ua = EditorRegistries.GetSettings<PolyHavenUserAgentSettings>();
+                EditorGUI.SettingsRow(paper, "ph_ua", Loc.Get("polyhaven.user_agent"), () =>
+                {
+                    using (paper.Row("ph_ua_row").Height(Origami.Current.Metrics.RowHeight).Gap(6).Enter())
+                    {
+                        Origami.TextField(paper, "ph_ua_v", ua.ApplicationName, v =>
+                        {
+                            ua.ApplicationName = PolyHavenUserAgent.Sanitize(v);
+                            EditorRegistries.SaveSettings();
+                        }).CommitOnEnter().Show();
+
+                        Origami.Button(paper, "ph_ua_reset", Loc.Get("polyhaven.user_agent_reset"), () =>
+                        {
+                            ua.ApplicationName = PolyHavenUserAgent.DefaultName;
+                            EditorRegistries.SaveSettings();
+                        }).Small().Show();
+                    }
+                }, separator: false);
+                Hint(paper, "ph_ua_hint",
+                    Loc.Get("polyhaven.user_agent_hint", new { header = PolyHavenUserAgent.Header }), font);
+
                 // The running import reports itself at the top, where it stays in view however far the list
                 // is scrolled. The bar fills as the bytes of each file arrive.
                 if (_job is { IsDone: false } job)

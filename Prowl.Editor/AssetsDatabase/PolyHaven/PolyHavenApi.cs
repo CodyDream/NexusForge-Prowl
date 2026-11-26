@@ -51,6 +51,7 @@ public sealed record PolyHavenAsset(
 /// <para>
 /// No key is needed. Their terms require every request to carry a User-Agent that names this tool, and the
 /// browser panel shows the "Powered by Poly Haven" credit near the results, which the terms also ask for.
+/// The header is <c>ProwlEditor/1.0 (&lt;name&gt;)</c>; the name can be set in the browser's Settings section.
 /// The assets themselves are CC0 and need no attribution.
 /// </para>
 /// </summary>
@@ -61,15 +62,20 @@ public static class PolyHavenApi
     /// <summary>The credit the panel shows next to the results, as the API terms ask.</summary>
     public const string Credit = "Powered by Poly Haven";
 
-    private const string UserAgent = "ProwlEditor/1.0 (Prowl Game Engine Poly Haven integration)";
-
     private static readonly HttpClient s_http = CreateClient();
 
-    private static HttpClient CreateClient()
+    private static HttpClient CreateClient() => new() { Timeout = TimeSpan.FromMinutes(10) };
+
+    /// <summary>
+    /// All requests go through here so each one carries the currently configured User-Agent. It is applied to
+    /// the request, not the shared client, because the name can be edited while other requests are in flight.
+    /// </summary>
+    private static async Task<HttpResponseMessage> GetAsync(string url, CancellationToken ct,
+        HttpCompletionOption completion = HttpCompletionOption.ResponseContentRead)
     {
-        var client = new HttpClient { Timeout = TimeSpan.FromMinutes(10) };
-        client.DefaultRequestHeaders.UserAgent.ParseAdd(UserAgent);
-        return client;
+        using var request = new HttpRequestMessage(HttpMethod.Get, url);
+        PolyHavenUserAgent.Apply(request.Headers);
+        return await s_http.SendAsync(request, completion, ct);
     }
 
     /// <summary>Every asset of one kind, with its name, category and tags. Throws when the API cannot be reached.</summary>
@@ -138,7 +144,7 @@ public static class PolyHavenApi
         Directory.CreateDirectory(Path.GetDirectoryName(absolutePath)!);
         string temp = absolutePath + ".part";
 
-        using (HttpResponseMessage response = await s_http.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, ct))
+        using (HttpResponseMessage response = await GetAsync(url, ct, HttpCompletionOption.ResponseHeadersRead))
         {
             response.EnsureSuccessStatusCode();
             long total = response.Content.Headers.ContentLength ?? 0;
@@ -163,14 +169,14 @@ public static class PolyHavenApi
     /// <summary>Downloads a small file into memory, used for the browser's preview images.</summary>
     public static async Task<byte[]> DownloadBytesAsync(string url, CancellationToken ct = default)
     {
-        using HttpResponseMessage response = await s_http.GetAsync(url, ct);
+        using HttpResponseMessage response = await GetAsync(url, ct);
         response.EnsureSuccessStatusCode();
         return await response.Content.ReadAsByteArrayAsync(ct);
     }
 
     private static async Task<JsonNode> GetJsonAsync(string url, CancellationToken ct)
     {
-        using HttpResponseMessage response = await s_http.GetAsync(url, ct);
+        using HttpResponseMessage response = await GetAsync(url, ct);
         response.EnsureSuccessStatusCode();
         string text = await response.Content.ReadAsStringAsync(ct);
         return JsonNode.Parse(text) ?? throw new InvalidDataException($"Poly Haven returned no JSON for '{url}'.");
