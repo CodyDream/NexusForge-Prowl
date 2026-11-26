@@ -25,7 +25,7 @@ public sealed class MeshLODOptions
     // Attribute weights compare squared attribute deviation against squared distance measured in units of
     // the mesh's size, so even small weights hold shading and texturing in place where they vary.
 
-    /// <summary>How strongly shading is protected. Seams between hard edges are always kept regardless.</summary>
+    /// <summary>How strongly shading is protected. Hard edges are penalised by this weight rather than being unbreakable seams.</summary>
     public float NormalWeight = 0.1f;
 
     /// <summary>How strongly texturing is protected, in UV units. UV seams are always kept regardless.</summary>
@@ -120,7 +120,11 @@ public static class MeshLODGenerator
         {
             bool shapeShading = def.Name.StartsWith(MeshGeometry.BlendShapePrefix, StringComparison.Ordinal)
                 && (def.Name.EndsWith("/normal", StringComparison.Ordinal) || def.Name.EndsWith("/tangent", StringComparison.Ordinal));
-            if (!shapeShading) seams.Add(def.Name);
+
+            // Hard normals and tangents are protected by their attribute weights below, but treating every
+            // shading discontinuity as an unbreakable seam stops faceted meshes from simplifying at all.
+            bool shading = def.Name is MeshGeometry.Normal or MeshGeometry.Tangent;
+            if (!shapeShading && !shading) seams.Add(def.Name);
         }
 
         var simplify = new SimplifyOptions

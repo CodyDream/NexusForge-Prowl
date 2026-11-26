@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
+using System.Linq;
 
 using Prowl.Echo;
 using Prowl.Editor.GUI;
@@ -18,7 +20,7 @@ namespace Prowl.Editor.Inspector;
 [CustomAssetEditor(typeof(Importers.EditorModelImporter))]
 public class ModelAssetEditor : ImportSettingsEditor
 {
-    private enum Tab { Model, Animation, Materials }
+    private enum Tab { Model, Animation, Materials, Details, Lod }
 
     /// <summary>What the inspector is showing for one model, kept per asset: the tab and the preview's playhead.</summary>
     private sealed class ViewState
@@ -28,6 +30,8 @@ public class ModelAssetEditor : ImportSettingsEditor
         public bool Playing = true;
         public float Time;
         public double LastFrame = -1;
+        public ModelDetails? Details;
+        public string LodStatus = "";
         public readonly ClipEventTrack Events = new();
     }
 
@@ -59,6 +63,30 @@ public class ModelAssetEditor : ImportSettingsEditor
         foreach (SubAssetEntry sub in entry.SubAssets)
             PreviewWidget.Invalidate(sub.Guid);
         s_views.Remove(entry.Guid);
+
+        // Auto mode generates the chain once, on Apply, and records the prefab in the .meta.
+        if (Projects.Project.Current is { } project)
+        {
+            string metaPath = MetaFile.GetMetaPath(Path.Combine(project.AssetsPath, entry.Path));
+            if (File.Exists(metaPath))
+            {
+                MetaFileData meta = MetaFile.Read(metaPath);
+                EchoObject settings = meta.Settings ?? EchoObject.NewCompound();
+                if (Bool(settings, Importers.ModelImportKeys.AutoLod, false)
+                    && Str(settings, Importers.ModelImportKeys.LodPrefab, "").Length == 0)
+                {
+                    var result = Importers.ModelLodGenerator.Generate(entry, Importers.ModelImportOverrides.ReadRatios(settings));
+                    if (result.PrefabGuid != Guid.Empty)
+                    {
+                        settings[Importers.ModelImportKeys.LodPrefab] = new EchoObject(result.PrefabPath);
+                        meta.Settings = settings;
+                        MetaFile.Write(metaPath, meta);
+                        ImportSettingsEditor.Forget(entry.Guid);
+                        EditorAssetBackend.Instance?.Reimport(entry.Guid);
+                    }
+                }
+            }
+        }
         return true;
     }
 
@@ -115,6 +143,8 @@ public class ModelAssetEditor : ImportSettingsEditor
         {
             case Tab.Animation: DrawAnimationTab(paper, id, m, font, settings, entry, preview, view); break;
             case Tab.Materials: DrawMaterialsTab(paper, id, m, font, settings, entry); break;
+            case Tab.Details: DrawDetailsTab(paper, id, m, font, entry, GetDetails(entry, view)); break;
+            case Tab.Lod: DrawLodTab(paper, id, m, font, entry, settings, view); break;
             default: DrawModelTab(paper, id, m, settings); break;
         }
 
@@ -203,6 +233,184 @@ public class ModelAssetEditor : ImportSettingsEditor
         }
     }
 
+    // ---- details ------------------------------------------------------------------------------
+
+    private readonly record struct ModelDetails(
+        int Meshes, int SubMeshes, long Vertices, long Triangles,
+        int Materials, int Lights, int AudioSources, int Lods,
+        int Animations, int Avatars, int SubAssets, long FileBytes);
+
+    /// <summary>Counts the model's geometry and scene content once per view, not every frame.</summary>
+    private static ModelDetails GetDetails(AssetEntry entry, ViewState view)
+    {
+        if (view.Details is { } cached) return cached;
+
+        int meshes = 0, subMeshes = 0, materials = 0, animations = 0, avatars = 0, lods = 0;
+        long vertices = 0, triangles = 0;
+        foreach (SubAssetEntry sub in entry.SubAssets)
+        {
+            Type? t = sub.Type;
+            if (t == null) continue;
+            if (typeof(Mesh).IsAssignableFrom(t))
+            {
+                meshes++;
+                if (sub.Name.Contains("LOD", StringComparison.OrdinalIgnoreCase)) lods++;
+                if (AssetDatabase.Load<Mesh>(sub.Guid) is { } mesh && mesh.IsValid())
+                {
+                    subMeshes += mesh.SubMeshCount;
+                    vertices += mesh.VertexCount;
+                    triangles += mesh.IndexCount / 3;
+                }
+            }
+            else if (typeof(Material).IsAssignableFrom(t)) materials++;
+            else if (typeof(AnimationClip).IsAssignableFrom(t)) animations++;
+            else if (typeof(Avatar).IsAssignableFrom(t)) avatars++;
+        }
+
+        int lights = 0, audio = 0;
+        if (AssetDatabase.Load<PrefabAsset>(entry.Guid) is { } prefab && prefab.GameObjectData is { } hierarchy)
+            CountComponents(hierarchy, ref lights, ref audio);
+
+        string source = Path.Combine(Projects.Project.Current?.AssetsPath ?? "", entry.Path);
+        long bytes = File.Exists(source) ? new FileInfo(source).Length : 0;
+
+        var details = new ModelDetails(meshes, subMeshes, vertices, triangles, materials,
+            lights, audio, lods, animations, avatars, entry.SubAssets.Length, bytes);
+        view.Details = details;
+        return details;
+    }
+
+    /// <summary>Walks the prefab's serialized hierarchy, counting light and audio components by type name.</summary>
+    private static void CountComponents(EchoObject node, ref int lights, ref int audio)
+    {
+        if (node.TagType == EchoType.Compound)
+        {
+            foreach (KeyValuePair<string, EchoObject> tag in node.Tags)
+            {
+                if (tag.Key == "$type")
+                {
+                    string? name = tag.Value.StringValue;
+                    if (name != null)
+                    {
+                        if (name.EndsWith("Light", StringComparison.OrdinalIgnoreCase)) lights++;
+                        else if (name.EndsWith("AudioSource", StringComparison.OrdinalIgnoreCase)) audio++;
+                    }
+                    continue;
+                }
+                CountComponents(tag.Value, ref lights, ref audio);
+            }
+        }
+        else if (node.TagType == EchoType.List)
+        {
+            for (int i = 0; i < node.Count; i++) CountComponents(node[i], ref lights, ref audio);
+        }
+    }
+
+    private static void DrawDetailsTab(Paper paper, string id, OrigamiMetrics m, Scribe.FontFile font, AssetEntry entry, ModelDetails d)
+    {
+        EditorGUI.SectionHeader(paper, $"{id}_h_det_geo", "Geometry", first: true);
+        Detail(paper, $"{id}_det_meshes", "Meshes", d.Meshes.ToString(), font);
+        Detail(paper, $"{id}_det_submeshes", "Sub-Meshes", d.SubMeshes.ToString(), font);
+        Detail(paper, $"{id}_det_verts", "Vertices", d.Vertices.ToString("N0"), font);
+        Detail(paper, $"{id}_det_tris", "Triangles", d.Triangles.ToString("N0"), font);
+        Detail(paper, $"{id}_det_lods", "LOD Levels", d.Lods > 0 ? d.Lods.ToString() : "None", font);
+
+        EditorGUI.SectionHeader(paper, $"{id}_h_det_scene", "Scene content");
+        Detail(paper, $"{id}_det_lights", "Lights", d.Lights.ToString(), font);
+        Detail(paper, $"{id}_det_audio", "Audio Sources", d.AudioSources.ToString(), font);
+
+        EditorGUI.SectionHeader(paper, $"{id}_h_det_assets", "Assets");
+        Detail(paper, $"{id}_det_mats", "Materials", d.Materials.ToString(), font);
+        Detail(paper, $"{id}_det_anims", "Animations", d.Animations.ToString(), font);
+        Detail(paper, $"{id}_det_avatars", "Avatars", d.Avatars.ToString(), font);
+        Detail(paper, $"{id}_det_subs", "Sub-Assets", d.SubAssets.ToString(), font);
+
+        EditorGUI.SectionHeader(paper, $"{id}_h_det_file", "Source");
+        Detail(paper, $"{id}_det_path", "Path", entry.Path, font);
+        Detail(paper, $"{id}_det_guid", "GUID", entry.Guid.ToString(), font);
+        Detail(paper, $"{id}_det_size", "File Size", FormatBytes(d.FileBytes), font);
+    }
+
+    private static void Detail(Paper paper, string id, string label, string value, Scribe.FontFile font)
+        => EditorGUI.Row(paper, id, label, () =>
+            paper.Box($"{id}_v").Height(Origami.Current.Metrics.RowHeight).Clip()
+                .Text(value, font).TextColor(EditorTheme.Ink300)
+                .FontSize(EditorTheme.FontSize).Alignment(TextAlignment.MiddleLeft));
+
+    private static string FormatBytes(long bytes)
+        => bytes < 1024 ? $"{bytes} B"
+            : bytes < 1024 * 1024 ? $"{bytes / 1024f:F1} KB"
+            : $"{bytes / (1024f * 1024f):F1} MB";
+
+    private static void DrawLodTab(Paper paper, string id, OrigamiMetrics m, Scribe.FontFile font,
+        AssetEntry entry, EchoObject settings, ViewState view)
+    {
+        EditorGUI.SectionHeader(paper, $"{id}_h_lod", "Automatic LOD", first: true);
+
+        EditorGUI.SettingsToggle(paper, $"{id}_lodAuto", "Generate LOD prefab on Apply",
+            Bool(settings, Importers.ModelImportKeys.AutoLod, false),
+            v => settings[Importers.ModelImportKeys.AutoLod] = new EchoObject(v), separator: false);
+
+        string ratiosText = string.Join(", ", Importers.ModelImportOverrides.ReadRatios(settings).Select(r => r.ToString("0.###")));
+        EditorGUI.Row(paper, $"{id}_lodRatios", "Triangle Ratios", () =>
+            Origami.TextField(paper, $"{id}_lodRatios_v", ratiosText, v =>
+            {
+                if (TryParseRatios(v, out float[] ratios))
+                    Importers.ModelImportOverrides.WriteRatios(settings, ratios);
+            }).Show());
+
+        EditorGUI.SettingsRow(paper, $"{id}_lodGenerate", "Generate", () =>
+            Origami.Button(paper, $"{id}_lodGenerate_v", "Generate LOD Prefab", () =>
+            {
+                Importers.ModelLodGenerator.Result result =
+                    Importers.ModelLodGenerator.Generate(entry, Importers.ModelImportOverrides.ReadRatios(settings));
+                if (result.PrefabGuid == Guid.Empty)
+                {
+                    view.LodStatus = "LOD generation failed - check the console.";
+                    return;
+                }
+                settings[Importers.ModelImportKeys.LodPrefab] = new EchoObject(result.PrefabPath);
+                SaveLodMeta(entry, settings);
+                view.LodStatus = $"Saved {result.Levels} level(s) to {result.PrefabPath}.";
+            }).Small().Show());
+
+        string prefab = Str(settings, Importers.ModelImportKeys.LodPrefab, "");
+        if (prefab.Length > 0)
+            Detail(paper, $"{id}_lodPrefab", "LOD Prefab", prefab, font);
+
+        if (view.LodStatus.Length > 0)
+            paper.Box($"{id}_lodStatus").Height(UnitValue.Auto)
+                .Margin(m.PaddingLarge, m.PaddingLarge, 0, 8)
+                .Text(view.LodStatus, font).TextColor(EditorTheme.Ink300)
+                .FontSize(EditorTheme.FontSizeSmall).Alignment(TextAlignment.MiddleLeft);
+
+        EditorGUI.SectionHeader(paper, $"{id}_h_lodHow", "How it works");
+        paper.Box($"{id}_lodHow").Height(UnitValue.Auto).Margin(m.PaddingLarge, m.PaddingLarge, 0, 8)
+            .Text("Each level keeps the renderer's materials. Graphite switches levels by projected screen size with hysteresis. Simplified meshes are saved as .mesh assets in a LODs folder beside the model.", font)
+            .TextColor(EditorTheme.Ink400).FontSize(EditorTheme.FontSizeSmall).Alignment(TextAlignment.MiddleLeft);
+    }
+
+    private static bool TryParseRatios(string text, out float[] ratios)
+    {
+        var values = new List<float>();
+        foreach (string part in text.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            if (float.TryParse(part, out float value)) values.Add(value);
+        ratios = [.. values];
+        return values.Count is > 0 and <= 7;
+    }
+
+    private static void SaveLodMeta(AssetEntry entry, EchoObject settings)
+    {
+        if (Projects.Project.Current is not { } project) return;
+        string metaPath = MetaFile.GetMetaPath(Path.Combine(project.AssetsPath, entry.Path));
+        if (!File.Exists(metaPath)) return;
+        MetaFileData meta = MetaFile.Read(metaPath);
+        meta.Settings = settings;
+        MetaFile.Write(metaPath, meta);
+        ImportSettingsEditor.Forget(entry.Guid);
+        EditorAssetBackend.Instance?.Reimport(entry.Guid);
+    }
+
     private static void DrawTabs(Paper paper, string id, ViewState view, AssetEntry entry, ModelStats stats)
     {
         OrigamiMetrics m = Origami.Current.Metrics;
@@ -214,6 +422,8 @@ public class ModelAssetEditor : ImportSettingsEditor
                 .Tab("Model")
                 .Tab("Animation", null, stats.AnimationCount > 0 ? stats.AnimationCount.ToString() : null)
                 .Tab("Materials")
+                .Tab("Details")
+                .Tab("LOD")
                 .Show();
         }
     }
@@ -646,7 +856,8 @@ public class ModelAssetEditor : ImportSettingsEditor
             return;
         }
 
-        Material? material = AssetDatabase.Get<Material>(source);
+        // Load, not Get: an embedded material nothing has touched yet stands in the database as an unloaded shell.
+        Material? material = AssetDatabase.Load<Material>(source);
         if (material.IsNotValid())
         {
             Debug.LogWarning($"[Model] '{slot.Name}' could not be loaded, so there is nothing to extract.");

@@ -47,6 +47,7 @@ public class SceneViewPanel : DockPanel
     internal EditorCamera? EditorCamera => _editorCamera;
     /// <summary>Includes restored settings before the camera is created on the first draw.</summary>
     internal bool ShowGizmos => _editorCamera?.ShowGizmos ?? _pendingGizmos ?? true;
+    internal bool ShowWireframe => _editorCamera?.ShowWireframe ?? false;
     private Gizmo.TransformGizmo? _transformGizmo;
     private bool _wasGizmoActive;
     private bool _gizmoHasMoved;
@@ -340,13 +341,19 @@ public class SceneViewPanel : DockPanel
         EditorGUI.HeaderIconButton(paper, "sv_hdr_settings", EditorIcons.Gear, Loc.Get("scene.settings"), () =>
             Origami.ContextMenu((float)paper.PointerPos.X, (float)paper.PointerPos.Y, b =>
             {
+                b.AutoWidth(300f, 440f);
                 b.Header(Loc.Get("panel.scene"));
                 b.Toggle(Loc.Get("scene.show_grid"),
                     () => { if (_editorCamera != null) _editorCamera.ShowGrid = !_editorCamera.ShowGrid; },
                     () => _editorCamera?.ShowGrid ?? true);
+                b.Toggle(Loc.Get("scene.wireframe"),
+                    () => { if (_editorCamera != null) _editorCamera.ShowWireframe = !_editorCamera.ShowWireframe; },
+                    () => _editorCamera?.ShowWireframe ?? false);
                 b.Toggle(Loc.Get("scene.post_processing"),
                     () => { if (_editorCamera != null) _editorCamera.PostProcessing = !_editorCamera.PostProcessing; },
                     () => _editorCamera?.PostProcessing ?? true);
+                b.Header(Loc.Get("scene.lod"));
+                b.Custom(DrawLodBiasSettings);
                 b.Submenu(Loc.Get("scene.debug_view"), sub =>
                 {
                     foreach (DebugViewMode mode in Enum.GetValues<DebugViewMode>())
@@ -377,6 +384,21 @@ public class SceneViewPanel : DockPanel
 
     // Lens settings only: what the camera sees from where it is, rather than where it is, which the
     // navigation controls own.
+    private static void DrawLodBiasSettings(Paper paper)
+    {
+        Scribe.FontFile? font = EditorTheme.DefaultFont;
+        if (font == null) return;
+        Prowl.Graphite.Rendering.RenderWorld? world = EditorSceneManager.EditedWorld.Rendering.World;
+
+        using (paper.Row("sv_lodbias").Height(Origami.Current.Metrics.RowHeight).Gap(6).Enter())
+        {
+            paper.Box("sv_lodbias_l").Width(80).Text(Loc.Get("scene.lod_bias"), font)
+                .TextColor(EditorTheme.Ink300).FontSize(EditorTheme.FontSize).Alignment(TextAlignment.MiddleLeft);
+            Origami.Slider(paper, "sv_lodbias_v", world?.Lod.Bias ?? 1f,
+                v => { if (world != null) world.Lod.Bias = v; }, 0.1f, 4f).Format("F2").Show();
+        }
+    }
+
     private static void DrawCameraSettings(Paper paper, EditorCamera cam)
     {
         Scribe.FontFile? font = EditorTheme.DefaultFont;
@@ -1191,6 +1213,7 @@ public class SceneViewPanel : DockPanel
     /// <summary>Called only by views that are drawing; disabled gizmos do not consume the frame's shared pass.</summary>
     internal void DrawSceneGizmos(EditorApplication? editor, Scene scene)
     {
+        if (ShowWireframe) DrawWireframe(scene);
         if (!ShowGizmos) return;
         editor?.DrawSceneGizmos(scene);
         if (ShowsCursor) DrawCursor();
@@ -1200,6 +1223,33 @@ public class SceneViewPanel : DockPanel
         foreach ((GameObject ghost, _) in _dropGhosts)
             if (ghost.IsValid() && TryGetWorldBounds(ghost, out Float3 min, out Float3 max))
                 Debug.DrawWireCube((min + max) * 0.5f, (max - min) * 0.5f, new Vector.Color(1f, 1f, 1f, 0.25f));
+    }
+
+    /// <summary>Draws a sample of every mesh's triangle edges as gizmo lines, including coarse LOD meshes.</summary>
+    private static void DrawWireframe(Scene scene)
+    {
+        Color color = Color.FromArgb(140, 80, 255, 120);
+        foreach (MeshRenderer renderer in scene.GetAll<MeshRenderer>())
+        {
+            Mesh mesh = renderer.Mesh;
+            if (mesh.IsNotValid() || !mesh.isReadable) continue;
+            Float3[] vertices = mesh.Vertices;
+            uint[] indices = mesh.Indices;
+            int triangles = indices.Length / 3;
+            int stride = Math.Max(1, triangles / 1500); // keep the gizmo pass usable on dense meshes
+            Float4x4 matrix = renderer.GameObject.Transform.LocalToWorldMatrix;
+
+            for (int t = 0; t < triangles; t += stride)
+            {
+                int i = t * 3;
+                Float3 a = Float4x4.TransformPoint(vertices[(int)indices[i]], matrix);
+                Float3 b = Float4x4.TransformPoint(vertices[(int)indices[i + 1]], matrix);
+                Float3 c = Float4x4.TransformPoint(vertices[(int)indices[i + 2]], matrix);
+                Debug.DrawLine(a, b, color);
+                Debug.DrawLine(b, c, color);
+                Debug.DrawLine(c, a, color);
+            }
+        }
     }
 
     // Drag preview: hidden, unsaved, render-only copies of what the drop would spawn, following the cursor, each

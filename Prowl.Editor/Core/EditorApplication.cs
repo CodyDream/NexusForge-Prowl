@@ -149,6 +149,7 @@ public class EditorApplication : Game
         AssetDatabase.WalkingRoots += WalkEditorRoots;
         AssetDatabase.WalkingRoots += Undo.VisitResidents;
         Runtime.Resources.Scene.Loaded += Undo.OnSectionLoaded;
+        PackageLibrary.StateChanged += OnPackageStateChanged;
 
         // If launched with --project arg, open the project and load assemblies
         // BEFORE registries scan so user types are visible to all registries
@@ -210,6 +211,9 @@ public class EditorApplication : Game
             // Initialize asset database for the already-opened project
             var db = new EditorAssetBackend(Project.Current!);
             db.Initialize();
+
+            // Make engine-provided packages available before restoring panels from the saved layout.
+            PackageLibrary.EnsureBuiltIn("PolyHaven", "Poly Haven asset browser and importer");
 
             // Restore layout
             DockNode? savedLayout = LoadDockLayout();
@@ -660,6 +664,9 @@ public class EditorApplication : Game
                 // Rebuild the scan-based registries (mesh features, menu items) against the loaded assemblies.
                 ReinitializeRegistries();
 
+                // Make engine-provided packages available before restoring panels from the saved layout.
+                PackageLibrary.EnsureBuiltIn("PolyHaven", "Poly Haven asset browser and importer");
+
                 // Restore layout from project (or use default)
                 SetDockLayout(LoadDockLayout() ?? CreateDefaultLayout());
 
@@ -1048,6 +1055,7 @@ public class EditorApplication : Game
     {
         foreach (AppMenuItem item in items)
         {
+            if (item.IsVisibleFunc?.Invoke() == false) continue;
             if (item.IsSeparator)
             {
                 ctx.Separator();
@@ -1845,6 +1853,8 @@ public class EditorApplication : Game
                     type = null;
                 }
                 if (type == null) return null;
+                // The browser is opened from its menu item, never restored automatically from a saved layout.
+                if (type == typeof(GUI.Panels.PolyHavenPanel)) return null;
                 var panel = Activator.CreateInstance(type) as DockPanel;
                 if (panel != null && state != null)
                     try { panel.RestoreState(state); } catch { }
@@ -2248,6 +2258,30 @@ public class EditorApplication : Game
         return FindNodeContainingInstance(node.ChildA, panel) ?? FindNodeContainingInstance(node.ChildB, panel);
     }
 
+    private void OnPackageStateChanged(string name, bool enabled)
+    {
+        // Enabling only makes the window available from the menu; it must never open itself.
+        if (enabled || !string.Equals(name, "PolyHaven", StringComparison.OrdinalIgnoreCase)) return;
+        ClosePanel(typeof(GUI.Panels.PolyHavenPanel));
+    }
+
+    /// <summary>Closes every open tab of a panel type, docked or floating, when its package is disabled.</summary>
+    internal void ClosePanel(Type panelType)
+    {
+        DockPanel? open = FindOpenPanel(panelType);
+        if (open == null) return;
+        if (_panelMaximizer.IsHidden(open)) _panelMaximizer.Restore();
+
+        IEnumerable<DockNode> roots = [_panelMaximizer.LayoutRoot, .. _dockSpace.FloatingWindows.Select(fw => fw.Node)];
+        foreach (DockNode node in roots)
+        {
+            if (!node.IsLeaf || node.Tabs == null) continue;
+            for (int i = node.Tabs.Count - 1; i >= 0; i--)
+                if (node.Tabs[i].GetType() == panelType)
+                    node.RemoveTab(i)?.OnClosed();
+        }
+    }
+
     private static DockNode? FindNodeContainingPanel(DockNode? node, Type panelType)
     {
         if (node == null) return null;
@@ -2286,6 +2320,7 @@ public class EditorApplication : Game
     public override void Closing()
     {
         s_closing = true;
+        PackageLibrary.StateChanged -= OnPackageStateChanged;
         CliServer.Shutdown();
         base.Closing();
     }

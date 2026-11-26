@@ -356,3 +356,6 @@ Design/
 Wulferis_Local/
 
 prowl.local.props
+
+# Locally installed .NET SDK (see global.json)
+.dotnet/

@@ -19,6 +19,8 @@ public sealed class AppMenuItem
     public Func<bool>? IsCheckedFunc;
     /// <summary> A function that dynamically determines whether the menu item is enabled. </summary>
     public Func<bool>? IsEnabledFunc;
+    /// <summary> A function that dynamically determines whether the menu item is visible. </summary>
+    public Func<bool>? IsVisibleFunc;
     /// <summary> A function that dynamically provides the label text for the menu item. </summary>
     public Func<string>? DynamicLabelFunc;
     /// <summary> Whether this item is a visual separator rather than a clickable menu item. </summary>
@@ -50,7 +52,7 @@ public static class MenuRegistry
 
     /// <summary> Registers a menu item at the specified slash-delimited path. Creates intermediate nodes as needed. If the path already exists, updates its properties with the provided values. </summary>
     public static void Register(string path, Action onClick, bool enabled = true, Func<bool>? isChecked = null,
-        Func<bool>? isEnabled = null, Func<string>? dynamicLabel = null, string icon = "")
+        Func<bool>? isEnabled = null, Func<string>? dynamicLabel = null, string icon = "", Func<bool>? isVisible = null)
     {
         string[] segments = path.Split('/');
         List<AppMenuItem> current = _rootMenus;
@@ -72,6 +74,7 @@ public static class MenuRegistry
                     existing.IsEnabledFunc = isEnabled;
                     existing.DynamicLabelFunc = dynamicLabel;
                     existing.Icon = icon;
+                    existing.IsVisibleFunc = isVisible;
                 }
                 else
                 {
@@ -82,6 +85,7 @@ public static class MenuRegistry
                         IsEnabledFunc = isEnabled,
                         DynamicLabelFunc = dynamicLabel,
                         Icon = icon,
+                        IsVisibleFunc = isVisible,
                     });
                 }
             }

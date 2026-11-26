@@ -34,14 +34,26 @@ internal static class ClayBackedImporter
     public static ModelImportResult Import(FileInfo assetPath, ModelImporterSettings settings)
     {
         string ext = assetPath.Extension.ToLowerInvariant();
-        Model clayModel = Clay.Importer.ModelImporter.Load(assetPath.FullName, settings: MapSettings(settings, ext));
+
+        // A glTF keeps its geometry in a separate .bin and its textures beside it, both referenced by a relative
+        // path. Clay resolves those against the directories it is given, so without this the model only loads
+        // when the process happens to run from its own folder, and every external buffer fails to resolve.
+        var resolver = new DefaultFileResolver([assetPath.DirectoryName ?? ""]);
+        Model clayModel = Clay.Importer.ModelImporter.Load(assetPath.FullName,
+            settings: MapSettings(settings, ext), resolver: resolver);
         return Bake(clayModel, Path.GetFileNameWithoutExtension(assetPath.Name), settings);
     }
 
     public static ModelImportResult Import(Stream stream, string virtualPath, ModelImporterSettings settings)
     {
         string ext = Path.GetExtension(virtualPath).ToLowerInvariant();
-        Model clayModel = Clay.Importer.ModelImporter.Load(stream, formatHint: virtualPath, settings: MapSettings(settings, ext));
+
+        // The stream's own directory is all a resolver can offer, but it is where a glTF's .bin sits when the
+        // model is loaded from disk rather than from bytes.
+        string directory = Path.GetDirectoryName(Path.GetFullPath(virtualPath)) ?? "";
+        var resolver = new DefaultFileResolver([directory]);
+        Model clayModel = Clay.Importer.ModelImporter.Load(stream, formatHint: virtualPath,
+            settings: MapSettings(settings, ext), resolver: resolver);
         return Bake(clayModel, Path.GetFileNameWithoutExtension(virtualPath), settings);
     }
 

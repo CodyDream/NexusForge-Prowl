@@ -141,6 +141,7 @@ public class MeshRenderer : Component, IMaterialRenderer, IRenderSync
 
         Float4x4 matrix = Transform.LocalToWorldMatrix;
         LightmapBinding lightmap = BakedLightingBinding.For(GameObject, ref _lightmapCache);
+        LODGroup? lodGroup = GameObject.GetComponentInParent<LODGroup>();
         _renderable.Sync(world, new RenderableState.Desc
         {
             Mesh = mesh.GpuIfLoaded,
@@ -151,6 +152,8 @@ public class MeshRenderer : Component, IMaterialRenderer, IRenderSync
             LayerMask = RenderableState.LayerBit(GameObject.LayerIndex),
             ObjectId = (uint)InstanceID,
             Lightmap = lightmap,
+            Lods = lodGroup.IsValid() ? lodGroup!.TryGetSet() : null,
+            LodBias = lodGroup.IsValid() ? lodGroup!.Bias : 1f,
         });
         return RenderableState.MaterialsReady(materials) && !(lightmap.Lightmapped && lightmap.Texture == null);
     }

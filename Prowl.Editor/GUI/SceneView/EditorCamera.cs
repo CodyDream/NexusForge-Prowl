@@ -47,6 +47,7 @@ public class EditorCamera
     // Toggles
     public bool ShowGrid { get; set; } = true;
     public bool ShowGizmos { get; set; } = true;
+    public bool ShowWireframe { get; set; } = false;
 
     public Camera Camera => _camera;
     public RenderTexture? RenderTarget => _renderTarget;
@@ -302,7 +303,7 @@ public class EditorCamera
         _camera.Render(new CameraRenderOptions
         {
             FallbackTarget = _renderTarget,
-            DisplayGizmos = ShowGizmos,
+            DisplayGizmos = ShowGizmos || ShowWireframe,
             Kind = Prowl.Graphite.Rendering.ViewKind.SceneView,
             Features = DebugViews.Features(DebugView, ShowGrid ? GridFeature.SceneList : null),
         });

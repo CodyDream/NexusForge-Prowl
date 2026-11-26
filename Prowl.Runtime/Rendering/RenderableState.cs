@@ -34,6 +34,8 @@ public sealed class RenderableState
         public Float4 Custom0, Custom1;
         public AABB? Bounds;
         public TransparentOrder Sort;
+        public LodSet? Lods;
+        public float LodBias;
 
         /// <summary>Multiplies the vertex colour in shaders that read the object colour. Null for white.</summary>
         public Float4? Color;
@@ -50,6 +52,8 @@ public sealed class RenderableState
     private Float4 _custom0, _custom1;
     private AABB? _bounds;
     private TransparentOrder _sort;
+    private LodSet? _lods;
+    private float _lodBias;
     private Float4 _color;
     private RenderWorld? _world;
 
@@ -83,6 +87,8 @@ public sealed class RenderableState
                 Lightmap = desc.Lightmap,
                 Sort = desc.Sort,
                 Color = desc.Color ?? Float4.One,
+                Lods = desc.Lods,
+                LodBias = desc.LodBias,
             };
             _handle = world.Add(add, desc.Materials);
             _world = world;
@@ -98,6 +104,8 @@ public sealed class RenderableState
             _sort = desc.Sort;
             _color = add.Color;
             _bounds = desc.Bounds;
+            _lods = desc.Lods;
+            _lodBias = desc.LodBias;
             if (desc.Bounds is { } bounds) world.SetBounds(_handle, bounds);
             return;
         }
@@ -111,6 +119,8 @@ public sealed class RenderableState
         if (!_lightmap.Equals(desc.Lightmap)) { world.SetLightmap(_handle, desc.Lightmap); _lightmap = desc.Lightmap; }
         if (_custom0 != desc.Custom0 || _custom1 != desc.Custom1) { world.SetCustomData(_handle, desc.Custom0, desc.Custom1); (_custom0, _custom1) = (desc.Custom0, desc.Custom1); }
         if (_sort != desc.Sort) { world.SetSort(_handle, desc.Sort); _sort = desc.Sort; }
+        if (!ReferenceEquals(_lods, desc.Lods)) { world.SetLods(_handle, desc.Lods); _lods = desc.Lods; }
+        if (_lodBias != desc.LodBias) { world.SetLodBias(_handle, desc.LodBias); _lodBias = desc.LodBias; }
         Float4 color = desc.Color ?? Float4.One;
         if (_color != color) { world.SetColor(_handle, color); _color = color; }
         if (!Nullable.Equals(_bounds, desc.Bounds))

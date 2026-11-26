@@ -24,6 +24,11 @@ public static class ModelImportKeys
     /// <summary>Humanoid bone name to the skeleton bone playing it, as set in the Avatar editor.</summary>
     public const string HumanoidMap = "humanoidMap";
 
+    /// <summary>Whether to generate a LOD prefab for the model, its triangle ratios and the prefab path.</summary>
+    public const string AutoLod = "autoLod";
+    public const string LodRatios = "lodRatios";
+    public const string LodPrefab = "lodPrefab";
+
     public const string ClipName = "name";
     public const string ClipLoop = "loop";
     public const string ClipTrimStart = "trimStart";
@@ -165,6 +170,28 @@ public static class ModelImportOverrides
         foreach (KeyValuePair<string, string> entry in map)
             block[entry.Key] = new EchoObject(entry.Value);
         settings[ModelImportKeys.HumanoidMap] = block;
+    }
+
+    /// <summary>Triangle ratios of the generated LOD levels, or the defaults when none are stored.</summary>
+    public static float[] ReadRatios(EchoObject settings)
+    {
+        if (!settings.TryGet(ModelImportKeys.LodRatios, out EchoObject list)
+            || list.TagType != EchoType.List || list.Count == 0)
+            return [0.5f, 0.25f, 0.125f];
+
+        var result = new float[list.Count];
+        for (int i = 0; i < result.Length; i++)
+            result[i] = Math.Clamp(list[i].FloatValue, 0.01f, 1f);
+        return result;
+    }
+
+    /// <summary>Writes the LOD ratios as an Echo list so they round-trip through the .meta settings.</summary>
+    public static void WriteRatios(EchoObject settings, IReadOnlyList<float> ratios)
+    {
+        EchoObject list = EchoObject.NewList();
+        foreach (float ratio in ratios)
+            list.ListAdd(new EchoObject(Math.Clamp(ratio, 0.01f, 1f)));
+        settings[ModelImportKeys.LodRatios] = list;
     }
 
     public static Guid ExtractedMaterial(EchoObject settings, string materialName)

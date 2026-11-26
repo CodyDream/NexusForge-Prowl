@@ -19,7 +19,8 @@ public class EditorModelImporter : AssetImporter
     // 8: normals now come from Clay, which splits vertices on hard edges.
     // 12: Clay negates X instead of Z, so models face +Z as authored, and cameras and lights sit on a child.
     // 13: only cameras and spot lights sit on a turned child, directional and point lights stay on the node.
-    private const int BaseVersion = 17;
+    // 18: a glTF's external .bin and textures now resolve beside the model file.
+    private const int BaseVersion = 18;
     /// <summary> Combined version: the importer's own base version plus the aggregate version from MeshFeatureRegistry, so any change to mesh feature generation invalidates the cache. </summary>
     public override int Version => BaseVersion + MeshFeatureRegistry.AggregateVersion;
 
@@ -172,6 +173,9 @@ public class EditorModelImporter : AssetImporter
         s["animationSampleRate"] = new EchoObject(30.0f);
         s[ModelImportKeys.Clips] = EchoObject.NewCompound();
         s[ModelImportKeys.MaterialRemap] = EchoObject.NewCompound();
+        s[ModelImportKeys.AutoLod] = new EchoObject(false);
+        s[ModelImportKeys.LodPrefab] = new EchoObject("");
+        ModelImportOverrides.WriteRatios(s, [0.5f, 0.25f, 0.125f]);
         s["generateLightmapUVs"] = new EchoObject(false);
         MeshFeatureRegistry.PopulateDefaultSettings(s);
         return s;

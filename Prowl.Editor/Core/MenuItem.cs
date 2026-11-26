@@ -79,6 +79,8 @@ public sealed class MenuItemAttribute : Attribute
     public bool Separator { get; init; } = false;
     /// <summary> When true, the item acts on the whole selection itself instead of being run once per multi-selected target. </summary>
     public bool SelectionWide { get; init; } = false;
+    /// <summary> Package that must be enabled for this item to appear, e.g. "PolyHaven". </summary>
+    public string VisiblePackage { get; init; } = "";
 
     /// <summary> Initializes a new menu item attribute with the specified path, validation flag, and priority. </summary>
     public MenuItemAttribute(string path, bool isValidate = false, int priority = 1000)
@@ -88,7 +90,7 @@ public sealed class MenuItemAttribute : Attribute
         Priority = priority;
     }
 
-    private sealed record Entry(string Path, Action Action, int Priority, string Icon, Type DeclaringType, bool Separator = false, bool SelectionWide = false);
+    private sealed record Entry(string Path, Action Action, int Priority, string Icon, Type DeclaringType, bool Separator = false, bool SelectionWide = false, string VisiblePackage = "");
 
     private static readonly List<Entry> _entries = [];
     private static readonly Dictionary<string, Func<bool>> _validators = new(StringComparer.Ordinal);
@@ -111,7 +113,7 @@ public sealed class MenuItemAttribute : Attribute
                 try
                 {
                     var del = (Action)Delegate.CreateDelegate(typeof(Action), method);
-                    _entries.Add(new Entry(attr.Path, del, attr.Priority, attr.Icon, method.DeclaringType!, attr.Separator, attr.SelectionWide));
+                    _entries.Add(new Entry(attr.Path, del, attr.Priority, attr.Icon, method.DeclaringType!, attr.Separator, attr.SelectionWide, attr.VisiblePackage));
                     _dirty = true;
                 }
                 catch { }
@@ -205,7 +207,11 @@ public sealed class MenuItemAttribute : Attribute
                     Type t = leaf.DeclaringType;
                     isChecked = () => EditorApplication.Instance?.IsPanelOpen(t) ?? false;
                 }
-                MenuRegistry.Register(leaf.Path, leaf.Action, isChecked: isChecked, isEnabled: validator, icon: leaf.Icon);
+                MenuRegistry.Register(leaf.Path, leaf.Action, isChecked: isChecked, isEnabled: validator,
+                    icon: leaf.Icon,
+                    isVisible: leaf.VisiblePackage.Length == 0
+                        ? null
+                        : () => PackageLibrary.IsEnabled(leaf.VisiblePackage));
             }
             else if (branch != null)
             {

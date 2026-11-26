@@ -365,6 +365,10 @@ public class EditorAssetBackend : AssetBackend
         {
             // Skip .meta files and hidden files
             if (file.EndsWith(".meta", StringComparison.OrdinalIgnoreCase)) continue;
+            // Half-written downloads (Poly Haven fetches to "<file>.part" then renames it into place)
+            // are not assets: importing one mints a .part.meta that outlives the rename and leaves an
+            // orphan behind next to the real file's own .meta.
+            if (file.EndsWith(".part", StringComparison.OrdinalIgnoreCase)) continue;
             string fileName = Path.GetFileName(file);
             if (fileName.StartsWith('.')) continue;
 
@@ -1282,6 +1286,8 @@ public class EditorAssetBackend : AssetBackend
             {
                 string name = Path.GetFileName(file);
                 if (name.EndsWith(".meta", StringComparison.OrdinalIgnoreCase)) continue;
+                // In-flight download temp files are not project content
+                if (name.EndsWith(".part", StringComparison.OrdinalIgnoreCase)) continue;
 
                 string childRel = relativePath.Length == 0 ? name : relativePath + "/" + name;
                 long size = 0; DateTime mod = DateTime.MinValue;
@@ -2228,6 +2234,10 @@ public class EditorAssetBackend : AssetBackend
 
         // Skip .meta files we manage them
         if (relativePath.EndsWith(".meta", StringComparison.OrdinalIgnoreCase)) return;
+
+        // Skip in-flight download temp files; the rename into the real file brings its own event,
+        // which registers the destination as a brand-new file (the .part path was never tracked).
+        if (relativePath.EndsWith(".part", StringComparison.OrdinalIgnoreCase)) return;
 
         switch (evt.Type)
         {

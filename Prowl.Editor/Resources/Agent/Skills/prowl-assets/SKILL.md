@@ -14,6 +14,22 @@ description: How Prowl assets work for scripts. Use when a script references tex
 - A runtime asset made with `new Material(shader)`, `new Mesh()` or `Clone()` has no GUID. It is always loaded, never unloaded by the engine, and belongs to whoever made it. Dispose it when done.
 - Never call `Dispose()` or `Destroy()` on a database asset, it throws. Use `AssetDatabase.Unload` if you really must.
 
+## Asset packages
+
+A project's `Packages/` folder holds asset packages that mount into `Assets/` on demand. A package is a folder
+with a `package.json` (`name`, `version`, `description`, and an optional `assets` naming the content folder,
+which defaults to `Assets`) plus that content folder.
+
+- The editor lists them in **Window → General → Packages**. A loaded
+  package appears under `Assets/Packages/<name>` as a directory link to the package's content folder, so its
+  files import normally and keep their own `.meta` GUIDs. Unloading deletes only the link; the package's files,
+  metas and GUIDs stay, so loading it again restores the same asset identities.
+- Package scripts compile with the project while the package is loaded.
+- From editor code: `PackageLibrary.Discover()`, `PackageLibrary.Create(name, out error)` and
+  `PackageLibrary.SetLoaded(name, loaded, out error)`.
+- A mounted package's assets are assets of the project: they ship in builds, resolve in scenes, and go missing
+  when the package is unloaded.
+
 ## Referencing assets from a script
 
 | | Plain field: `public Material Mat;` | `public AssetRef<Material> Mat;` |
@@ -83,6 +99,19 @@ Builds only ship the scenes in the build, everything they reference (plain field
 ## Creating and saving assets (editor code only)
 
 `EditorAssetBackend.Instance.CreateAsset(asset, "Materials/New.mat")` writes the file, imports it and turns that same object into the database asset. `SaveAsset(asset)` writes changes back. Files like `.fbx` and `.png` are imported, not saved, so they can not be written this way. From the CLI use `asset create`, `set`, `material` and `importer` instead.
+
+## Poly Haven (online library)
+
+**Window → General → Poly Haven** browses Poly Haven's CC0 HDRIs, textures and models through their public API and imports the picked one into `Assets/PolyHaven/<id>/`. The API needs no key but requires a naming User-Agent, which the client sends, and the panel shows the "Powered by Poly Haven" credit the terms ask for.
+
+- **An HDRI** downloads at the chosen resolution (1k-8k `.hdr`), imports, and becomes a panorama material that is set as the edited scene's `SkyMaterial`.
+- **A texture set** keeps one source per map: the colour map, the OpenGL normal map, the displacement map, and the packed `arm` image. The packed image is split on the download thread into `_occlusion`, `_roughness` and `_metallic` greyscale pngs and the packed original is deleted, so the project never holds the same data twice. Assets without an `arm` image fall back to their separate `AO`, `Rough` and `Metal` maps. The DirectX normal map and the `rough_ao`, `spec`, `Bump` and `blend` files are never imported.
+- The maps become a Lit material with `base_color_map`, `geometry_normal_map`, `ambient_occlusion_map`, `specular_roughness_map`, `base_metalness_map` and `geometry_height_map`, and that material is given to every slot of every renderer under the selected object.
+- **A model** downloads its glTF, `.bin` and textures keeping the glTF's relative paths, and imports as its model prefab. The packed `arm` image the glTF references stays on disk, but it is split into `_occlusion`, `_roughness` and `_metallic` greyscale pngs next to the other textures. Every material the model imports then becomes a standalone `.mat` under `Assets/PolyHaven/<id>/Materials/`, wired to the base colour, normal, occlusion and the three unpacked maps, so models show their textures like texture sets do and remain editable, movable Project assets.
+
+The panel lists a page at a time and adds rows as it is scrolled, and a 128 pixel preview is fetched only for the rows on screen (`PolyHavenThumbnails`), so browsing the library costs a couple of small images rather than the whole catalogue. Assets already present under `Assets/PolyHaven/<id>/` are shown greyed out as installed; right-click one to re-download it at another resolution (its folder is deleted first) or to delete it.
+
+File names carry meaning: `nor` in a name imports as a normal map and `mask`/`roughness`/`metallic`/`occlusion`/`displacement` as linear data, which is why the downloaded maps are named that way. `PolyHavenFiles.Plan` decides what to fetch and is covered by `Prowl.Editor.Test/PolyHavenTests.cs`.
 
 ## Gotchas
 
