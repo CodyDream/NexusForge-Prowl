@@ -20,7 +20,7 @@ public static class Program
     private const int ExitError = 1;
     private const int ExitCancelled = 130;
 
-    private static readonly string[] s_verbs = ["status", "command", "eval", "eval_file"];
+    private static readonly string[] s_verbs = ["status", "command", "eval", "eval_file", "mcp"];
 
     private const string Help = """
         prowl: drive a running Prowl editor from the terminal.
@@ -121,6 +121,10 @@ public static class Program
                 break;
             }
 
+            case "mcp":
+                request = new CliRunRequest { Command = "mcp_dispatch" };
+                break;
+
             case "eval":
                 if (verbArgs.Count != 1) throw new CliUsageException("eval takes one argument, the code. Quote it, or pass - to read it from stdin.");
                 string code = verbArgs[0] == "-" ? await Console.In.ReadToEndAsync() : verbArgs[0];
@@ -138,6 +142,21 @@ public static class Program
         if (request == null) return await ListAsync(client, json);
 
         request.TimeoutSeconds = timeout;
+
+        // MCP stdio host: each input line is dispatched to the editor, the response line is
+        // written to stdout. Notifications produce no output, as the protocol requires.
+        if (verb == "mcp")
+        {
+            string? line;
+            while ((line = await Console.In.ReadLineAsync()) is not null)
+            {
+                if (string.IsNullOrWhiteSpace(line)) continue;
+                string? response = await McpAsync(client, line, timeout);
+                if (!string.IsNullOrEmpty(response)) Console.WriteLine(response);
+            }
+            return ExitOk;
+        }
+
         return await RunCommandAsync(client, request, json);
     }
 
@@ -233,6 +252,30 @@ public static class Program
             }
         }
         return ExitOk;
+    }
+
+    private static async Task<string?> McpAsync(HttpClient client, string line, int timeout)
+    {
+        var request = new CliRunRequest
+        {
+            Command = "mcp_dispatch",
+            Positional = [line],
+            TimeoutSeconds = timeout,
+        };
+        var content = new StringContent(JsonSerializer.Serialize(request, CliProtocol.Json), Encoding.UTF8, "application/json");
+        HttpResponseMessage response = await SendAsync(() => client.PostAsync(CliProtocol.RunPath, content));
+        string body = await response.Content.ReadAsStringAsync();
+        CliRunResponse? result = TryDeserialize<CliRunResponse>(body);
+        if (!response.IsSuccessStatusCode || result == null || !result.Ok)
+        {
+            Console.Error.WriteLine($"[mcp] {(result?.Error ?? body)}");
+            return null;
+        }
+        foreach (CliLogLine log in result.Logs)
+            Console.Error.WriteLine($"[{log.Severity}] {log.Message}");
+        return result.Result?.GetValueKind() == JsonValueKind.String
+            ? result.Result.GetValue<string>()
+            : result.Result?.ToJsonString();
     }
 
     private static async Task<int> RunCommandAsync(HttpClient client, CliRunRequest request, bool json)
